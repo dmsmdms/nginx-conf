@@ -1,0 +1,182 @@
+user nginx nginx;
+master_process off;
+worker_processes 1;
+timer_resolution 100ms;
+
+events {
+    worker_connections 1024;
+    multi_accept on;
+    use epoll;
+}
+
+http {
+    access_log off;
+    log_not_found off;
+    error_log /var/log/nginx/error.log warn;
+
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    server_tokens off;
+
+    client_body_timeout 5s;
+    client_header_timeout 5s;
+    keepalive_timeout 15s;
+    send_timeout 5s;
+
+    client_body_buffer_size 128k;
+    client_header_buffer_size 2k;
+    client_max_body_size 10m;
+    large_client_header_buffers 4 4k;
+
+    ssl_session_tickets off;
+    ssl_session_cache shared:SSL:4m;
+    ssl_session_timeout 1d;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+
+    open_file_cache max=1000 inactive=20s;
+    open_file_cache_valid 30s;
+    open_file_cache_min_uses 2;
+    open_file_cache_errors on;
+
+    limit_req_zone $binary_remote_addr zone=mylimit:4m rate=10r/s;
+    limit_conn_zone $binary_remote_addr zone=addr:4m;
+
+    gzip on;
+    gzip_static on;
+    gzip_comp_level 2;
+    gzip_min_length 4096;
+    gzip_proxied any;
+    gzip_vary on;
+    gzip_types
+        text/plain
+        text/css
+        text/xml
+        application/javascript
+        application/json
+        application/xml
+        application/xml+rss
+        application/wasm
+        image/svg+xml
+        image/x-icon
+        application/vnd.ms-fontobject
+        application/x-font-ttf
+        font/opentype;
+
+    types_hash_max_size 4096;
+    types_hash_bucket_size 128;
+    include mime.types.nginx;
+
+    {% macro proxy_common() -%}
+    proxy_http_version 1.1;
+    proxy_set_header X-Real-IP $remote_addr;
+    {%- endmacro %}
+
+    {% macro static_common() -%}
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    {%- endmacro %}
+
+    {% for app in apps %}
+    {% if app.enabled %}
+    # --- Configuration for {{ app.name }} ---
+    upstream {{ app.name }} {
+        server unix:/run/backend/{{ app.name }}.sock;
+        keepalive 16;
+    }
+
+    server {
+        listen 443 ssl http2;
+        server_name {{ app.domain }};
+
+        ssl_certificate /etc/letsencrypt/live/{{ app.domain }}/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/{{ app.domain }}/privkey.pem;
+
+        root /var/www/{{ app.name }};
+        index index.html;
+
+        {% if app.api %}
+        # API Proxy
+        location /api/ {
+            proxy_pass http://{{ app.name }}/$request_uri;
+            proxy_set_header Connection "";
+            {{ proxy_common() }}
+        }
+        {% endif %}
+
+        {% if app.bot %}
+        # Bot Proxy
+        location /bot {
+            proxy_pass http://{{ app.name }}/bot;
+            proxy_set_header Connection "";
+            {{ proxy_common() }}
+        }
+        {% endif %}
+
+        {% if app.ws %}
+        # WebSocket Proxy
+        location /ws {
+            proxy_pass http://{{ app.name }}/ws;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "Upgrade";
+            proxy_read_timeout 3600s;
+            {{ proxy_common() }}
+        }
+        {% endif %}
+
+        # Static Content
+        location / {
+            try_files $uri $uri/ /index.html;
+            limit_req zone=mylimit burst=20 nodelay;
+            limit_conn addr 10;
+            {{ static_common() }}
+        }
+
+        location ~* \.html$ {
+            etag on;
+            add_header Cache-Control "no-cache, must-revalidate";
+            {{ static_common() }}
+        }
+
+        location ~* \.(?:css|js|jpg|jpeg|gif|png|svg|wasm|ico|webp|avif|woff2|mp4|mp3|json|webmanifest)$ {
+            try_files $uri =404;
+            expires 30d;
+            add_header Cache-Control "public, no-transform";
+            {{ static_common() }}
+        }
+
+        location ~ /\. {
+            deny all;
+        }
+    }
+    {% endif %}
+    {% endfor %}
+
+    # HTTP to HTTPS redirect for all domains
+    server {
+        listen 80;
+        server_name {% for app in apps %}{{ app.domain }} {% endfor %};
+        return 301 https://$host$request_uri;
+    }
+
+    {% if binpkg.enabled %}
+    # --- Local Binary Packages Repository ---
+    server {
+        listen 80;
+        server_name {{ binpkg.domain }};
+
+        root {{ binpkg.path }};
+
+        location / {
+            allow {{ binpkg.allow_network }};
+            deny all;
+
+            # Recommended for package repos
+            autoindex on;
+            autoindex_exact_size off;
+        }
+    }
+    {% endif %}
+}
