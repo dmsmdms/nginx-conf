@@ -148,7 +148,7 @@ http {
         limit_req zone=mylimit burst=20 nodelay;
         limit_conn addr 10;
 
-        {% if app.app %} # Клиентское SPA-приложение по пути /<lang>/app {% if app.lang %}
+        {% if app.app %} # Клиентское SPA-приложение {% if app.lang %}
         location ~ ^/app/?$ {
             return 301 https://$host/app/$detected_lang_{{ app.name }}/;
         }
