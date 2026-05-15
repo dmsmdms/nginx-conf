@@ -149,8 +149,12 @@ http {
         limit_conn addr 10;
 
         {% if app.app %} # Клиентское SPA-приложение по пути /<lang>/app {% if app.lang %}
-        location ~ ^/(?<lang_prefix>{% for lang in app.lang %}{{ lang }}{% if not loop.last %}|{% endif %}{% endfor %})/app(?<app_uri>/.*)?$ {
-            try_files $uri /$lang_prefix/app/index.html;
+        location ~ ^/app/?$ {
+            return 301 https://$host/app/$detected_lang_{{ app.name }}/;
+        }
+
+        location ~ ^/app/(?<lang_prefix>{% for lang in app.lang %}{{ lang }}{% if not loop.last %}|{% endif %}{% endfor %})(?<app_uri>/.*)?$ {
+            try_files $uri /app/$lang_prefix/index.html;
         {% else %}
         location /app {
             try_files $uri /app/index.html;
