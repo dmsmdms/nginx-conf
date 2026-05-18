@@ -153,7 +153,7 @@ http {
             return 301 https://$host/app/$detected_lang_{{ app.name }}/;
         }
 
-        location ~ ^/app/(?<lang_prefix>{% for lang in app.lang %}{{ lang }}{% if not loop.last %}|{% endif %}{% endfor %})(?<app_uri>/.*)?$ {
+        location ~ ^/app/(?<lang_prefix>{% for lang in app.lang %}{{ lang }}{% if not loop.last %}|{% endif %}{% endfor %})(?:\/|$)(?<app_uri>.*)?$ {
             try_files $uri /app/$lang_prefix/index.html;
         {% else %}
         location /app {
