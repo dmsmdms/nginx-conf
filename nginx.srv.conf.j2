@@ -186,6 +186,15 @@ http {
         }
         {% endif %}
 
+        {% if app.admin_bot %}
+        # Проксирование Admin Telegram бота
+        location /admin/bot {
+            proxy_pass http://{{ app.name }}/admin/bot;
+            proxy_set_header Connection "";
+            {{ proxy_common() }}
+        }
+        {% endif %}
+
         {% if app.ws %}
         # Обработка WebSocket соединений
         location /ws {
