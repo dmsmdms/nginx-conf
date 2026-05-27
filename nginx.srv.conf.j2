@@ -263,6 +263,12 @@ http {
         location ~ /\. {
             deny all;
         }
+
+        # Запрет на PHP запросы
+        location ~ \.php$ {
+            deny all;
+        }
+
         {% endif %}
     }
     {% endif %}
