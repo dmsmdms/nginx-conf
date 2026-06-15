@@ -103,10 +103,12 @@ http {
     {% if app.enabled %}
     
     # Бэкенд-группа для {{ app.name }}
+    {% if app.unix %}
     upstream {{ app.name }} {
         server unix:/run/backend/{{ app.name }}.sock;
         keepalive 16;       # Поддержка постоянных соединений с бэкендом
     }
+    {% endif %}
 
     {% if app.lang %}
     # Определение языка на основе заголовка браузера
@@ -210,13 +212,14 @@ http {
         # Статичный контент и точка входа по умолчанию
         location / {
             # Приоритет: точный файл -> файл.html файл -> папка -> прокси на Backend
-            try_files $uri $uri.html @backend;
+            try_files $uri $uri.html {% if app.unix %}@backend {% endif %};
             etag on;
             add_header Cache-Control "no-cache, must-revalidate";
             {{ static_common() }}
         }
 
         # Именованный location для передачи запроса backend
+        {% if app.unix %}
         location @backend {
             proxy_pass http://{{ app.name }};
             proxy_set_header Connection "";
@@ -238,6 +241,7 @@ http {
             error_page 404 /404.html;
             error_page 500 502 503 504 /50x.html;
         }
+        {% endif %}
 
         # Защита страниц ошибок (доступ только внутренний)
         location ~ ^/(404|50x)\.html$ {
